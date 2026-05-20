@@ -1,0 +1,14 @@
+{
+  "name": "opencode-swap-sync",
+  "version": "1.0.0",
+  "description": "OpenCode plugin: sync swap.yaml with live model/provider data from Copilot API",
+  "type": "module",
+  "main": "./sync.ts",
+  "scripts": {
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@opencode-ai/plugin": "^1.15.5",
+    "yaml": "^2.7.1"
+  }
+}
