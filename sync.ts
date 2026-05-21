@@ -5,6 +5,22 @@ import { execFile } from "child_process"
 import * as yaml from "yaml"
 import type { Config } from "@opencode-ai/plugin"
 
+let _logFd: number | null = null
+
+function slog(msg: string) {
+  const pid = process.pid
+  const entry = `T+${Date.now()} [swap-sync-pid:${pid}] ${msg}\n`
+  try {
+    if (!_logFd) {
+      const logPath = `/tmp/swap-sync-debug-${pid}.log`
+      _logFd = fs.openSync(logPath, "a")
+    }
+    fs.writeSync(_logFd, entry)
+  } catch {
+    // fallback silent
+  }
+}
+
 function getSwapYamlPath(): string {
   return process.env.SWAP_CONFIG_PATH
     || path.join(os.homedir(), "codes/llm-config-wiring/metadata/swap.yaml")
@@ -75,13 +91,23 @@ function execAsync(cmd: string, args: string[], timeoutMs: number): Promise<stri
 
 export async function syncSwapYaml(toast?: (msg: string, variant: string) => void) {
   const swapYamlPath = getSwapYamlPath()
+  slog(`syncSwapYaml START path=${swapYamlPath}`)
 
   // Fetch models (async, non-blocking)
   toast?.("Fetching models from Copilot API...", "info")
-  const modelOutput = await execAsync("opencode", ["models", "--verbose"], 30000)
-  const models = parseModelOutput(modelOutput)
-  const providerNames = [...new Set<string>(models.map((m: any) => m.providerID).filter(Boolean))]
-  toast?.(`Received ${models.length} models from ${providerNames.length} providers`, "info")
+  slog("Fetching models START")
+  let models: any[] = []
+  try {
+    const modelOutput = await execAsync("opencode", ["models", "--verbose"], 30000)
+    models = parseModelOutput(modelOutput)
+    const providerNames = [...new Set<string>(models.map((m: any) => m.providerID).filter(Boolean))]
+    slog(`Models fetched: ${models.length} models, ${providerNames.length} providers`)
+    toast?.(`Received ${models.length} models from ${providerNames.length} providers`, "info")
+  } catch (err: any) {
+    slog(`Models fetch FAILED: ${err.message}`)
+    toast?.("Failed to fetch models", "error")
+    return
+  }
 
   // Build update maps from models first (providers inferred from model data)
   const modelsByProvider: Record<string, string[]> = {}
@@ -92,17 +118,20 @@ export async function syncSwapYaml(toast?: (msg: string, variant: string) => voi
       modelsByProvider[pid].push(m.id)
     }
   }
+  slog(`Models grouped: ${Object.keys(modelsByProvider).length} providers`)
 
   // Fetch provider status (async, non-blocking) — fails gracefully on timeout
   let providerMap: Record<string, string> = {}
   try {
+    slog("Fetching providers START")
     const providerOutput = await execAsync("swap", ["provider", "--json"], 15000)
     const providers = JSON.parse(providerOutput)
     for (const p of providers) {
       providerMap[p.name] = p.enabled ? "enabled" : "disabled"
     }
+    slog(`Providers fetched: ${Object.keys(providerMap).length}`)
   } catch {
-    // Timeout is expected (swap provider --json takes ~30s) — infer from model data
+    slog("Providers fetch TIMEOUT — inferring from model data")
     for (const pid of Object.keys(modelsByProvider)) {
       providerMap[pid] = "enabled"
     }
@@ -110,6 +139,7 @@ export async function syncSwapYaml(toast?: (msg: string, variant: string) => voi
   }
 
   // Write swap.yaml
+  slog("Writing swap.yaml")
   if (!fs.existsSync(swapYamlPath)) {
     fs.writeFileSync(swapYamlPath, "{}", "utf-8")
   }
@@ -120,6 +150,7 @@ export async function syncSwapYaml(toast?: (msg: string, variant: string) => voi
 
   const modelCount = models.length
   const providerCount = Object.keys(providerMap).length
+  slog(`swap.yaml written: ${modelCount} models, ${providerCount} providers`)
   toast?.(`swap.yaml updated — ${modelCount} model entries, ${providerCount} providers`, "success")
 }
 
