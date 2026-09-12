@@ -126,6 +126,7 @@ async function syncNow(context, options = {}) {
  */
 function Commands(props) {
   props.context.keymap.layer(() => ({
+    mode: "global",
     commands: [
       {
         id: "swap.sync",

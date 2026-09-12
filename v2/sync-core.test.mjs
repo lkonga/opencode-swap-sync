@@ -222,6 +222,7 @@ describe("V2 TUI entrypoint contract", () => {
   })
 
   test("registers no invented keybind", () => {
+    expect(source).toContain('mode: "global"')
     expect(source).toContain("bind: false")
     expect(source).not.toMatch(/bind:\s*["'][a-z]/)
   })
